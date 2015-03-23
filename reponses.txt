@@ -1,0 +1,12 @@
+3.2.1 :
+	1) 	Le message d'erreur suivant apparait : 
+		bind socker_serveur: Address already in use
+		probleme creation serveur
+		: Address already in use
+	   	Il faut attendre quelques temps avant de pouvoir redémarer le serveur.
+	
+	2) La commande nc -z 127.0.0.1 8080 arrète le serveur
+
+	3) Avec cette commande la connexion est refusée car on utilise une adresse IPv6 or nous avons configurer le serveur pour des adresses IPv4.
+
+	4) Le deuxième client ne recoit pas le message de bienvenue et ne peut pas envoyer ni recevoir des messages car le serveur est occuper avec le premier client qui lui 		   peut envoyer et recevoir des messages.
