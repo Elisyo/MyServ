@@ -33,4 +33,6 @@ int creer_serveur(int port){
 		return -1;
 	}
 	
+	return socket_serveur;
+	
 }

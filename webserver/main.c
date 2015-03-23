@@ -1,14 +1,48 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include "socket.h"
 
+/*Gère la connexion au serveur*/
+int connexion(int socket_serveur) {
 
-int main(int argc , char **argv){
+	int socket_client;
+	char *message_recu = malloc(150);
+	int nbCaratere;
+	const char *message_bienvenue = "Bonjour, bienvenue sur mon serveur, je vais vous chanter une petite chanson : coucou c'est moi moumou la reine des moueeeeeeeettes qui 		s'en va tout droit vers euralille, fait attention, fait attention, la chanson recommence... .\nAh tchou tchou pouet pouet la voila, la totomobile, ah tchou thou 			pouet pouet la voila, que fait-elle donc la ! Jour mémorable de sa première sortie, touloute touloute, lorsqu'elle entra dans une confiserie, dans une confiserie ! 		hummmmmmmmmmm !!!!!!\nQue viens-tu faire ici?\nTu veux de l'argent ? bah t'en aura pas !\nTu veux une bonne note ? Fini ce TP !!!\nlolilol!\n#hashtag\nUn mur en 			brique tombe et casse ca donne quoi ? un mur cassé;\nVoilà la fin de mon long et très long message pour juste vous dire bienvenue. La main est à vous.\n";
 
-	/* Arnold Robbins in the LJ of February ’95, describing RCS */
-	if (argc > 1 && strcmp(argv[1], "-advice") == 0) {
-		printf("Don’t Panic!\n");
-		return 42;
+	/*Tentative de connexion au client*/
+	socket_client = accept(socket_serveur, NULL, NULL);
+	if(socket_client == -1){
+		perror("accept");
+		return -1;
 	}
-	printf("Need an advice?\n");
+
+	/*Affiche le message de bienvenue au client*/
+	write(socket_client, message_bienvenue, strlen(message_bienvenue));
+
+	/*Renvoie tout les messages recut du client au client*/
+	while(1){
+		nbCaratere = read(socket_client, message_recu, 150);
+		write(socket_client, message_recu, nbCaratere);
+	}
+
+	return socket_client;
+}
+
+int main(){
+
+	int socket_serveur;
+	socket_serveur = creer_serveur(8080);
+	if(socket_serveur == -1){
+		perror("probleme creation serveur\n");
+		return -1;
+	}
+	while(1)
+		connexion(socket_serveur);
 	return 0;
+	
 }
