@@ -1,55 +1,67 @@
-#include <stdio.h>
-#include <sys/types.h>
+#include "socket.h"
+#include <sys/types.h>          /* See NOTES */
 #include <sys/socket.h>
+#include <stdio.h>
 #include <arpa/inet.h>
+#include <string.h>
+#include <unistd.h>
 #include <signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
-/*Definit l'action a effectuer suite à la récéption d'un signal*/
-void initialiser_signaux(void){
-
-	/*Ignore suite à la récéption du signal SIGPIPE*/
-	if(signal(SIGPIPE ,SIG_IGN) == SIG_ERR)
-		perror ("signal");
-
+void traitement_signal(int sig){
+	int status;	
+	printf("Signal%dreçu\n",sig);
+	if (sig == SIGCHLD)
+	{
+		wait(&status);
+		if (WIFSIGNALED(status))
+			printf("Fils terminé par signal: %d\n", WTERMSIG(status));
+	}
 }
 
-/*On gère ici la partie serveur*/
-int creer_serveur(int port){
+void initialiser_signaux(void){
+	if(signal(SIGPIPE ,SIG_IGN) == SIG_ERR)
+		perror ("signal");
+	struct sigaction sa;
+	sa.sa_handler = traitement_signal;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_RESTART;
+	if(sigaction(SIGCHLD, &sa, NULL) == -1){
+		perror("sigaction(SIGCHLD)");
+	}
+}
 
-	int socket_serveur;
+int creer_serveur (int port){
+	int socket_serveur ;
 	int optval = 1;
-	
-	/*Création de la socket serveur*/
+	initialiser_signaux();
 	socket_serveur = socket(AF_INET ,SOCK_STREAM ,0);
 	if (socket_serveur == -1){
+		/* traitement de l ’ erreur */
 		perror("socket_serveur");
 		return -1;
 	}
-	
-	/*Structure pour la configuration de la socket*/
 	struct sockaddr_in saddr;
 	saddr.sin_family = AF_INET; /* Socket ipv4 */
 	saddr.sin_port = htons(port); /* Port d ’ écoute */
 	saddr.sin_addr.s_addr = INADDR_ANY; /* écoute sur toutes les interfaces */
-
-	/*Permet à un processus de faire un bind sur une même adresse*/
+	
 	if(setsockopt(socket_serveur , SOL_SOCKET , SO_REUSEADDR , &optval , sizeof(int)) == -1){
 		perror("setsockopt");
 		return -1;
 	}
-
-	/*Configuration de la socket*/
-	if (bind(socket_serveur, (struct sockaddr *)& saddr, sizeof(saddr)) == -1){	
+	if (bind(socket_serveur, (struct sockaddr *)& saddr, sizeof(saddr)) == -1){
+		/* traitement de l ’ erreur */		
 		perror("bind socker_serveur");
 		return -1;
 	}
-	
-	/*Démarrage de l'attente d'un client*/
 	if (listen(socket_serveur, 10) == -1){
+		/* traitement d ’ erreur */
 		perror("listen socket_serveur");
 		return -1;
 	}
-	
 	return socket_serveur;
-	
 }
+
+

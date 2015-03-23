@@ -3,6 +3,23 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <signal.h>
+#include <sys/wait.h>
+
+
+/*Affiche le signal reçu*/
+void traitement_signal(int sig){
+
+	int status;
+	
+	printf("Signal %d reçu\n", sig);
+	if (sig == SIGCHLD){
+		wait(&status);
+		if (WIFSIGNALED(status))
+			printf("Fils terminé par signal: %d\n", WTERMSIG(status));
+	}
+	
+}
+
 
 /*Definit l'action a effectuer suite à la récéption d'un signal*/
 void initialiser_signaux(void){
@@ -10,8 +27,17 @@ void initialiser_signaux(void){
 	/*Ignore suite à la récéption du signal SIGPIPE*/
 	if(signal(SIGPIPE ,SIG_IGN) == SIG_ERR)
 		perror ("signal");
+		
+	/*Gère les processus zombies*/
+	struct sigaction sa;
+	sa.sa_handler = traitement_signal;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_RESTART;
+	if(sigaction(SIGCHLD, &sa, NULL) == -1)
+		perror("sigaction(SIGCHLD)");
 
 }
+
 
 /*On gère ici la partie serveur*/
 int creer_serveur(int port){
