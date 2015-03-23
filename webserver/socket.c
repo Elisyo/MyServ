@@ -2,12 +2,25 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <signal.h>
+
+/*Definit l'action a effectuer suite à la récéption d'un signal*/
+void initialiser_signaux(void){
+
+	/*Ignore suite à la récéption du signal SIGPIPE*/
+	if(signal(SIGPIPE ,SIG_IGN) == SIG_ERR)
+		perror ("signal");
+
+}
 
 /*On gère ici la partie serveur*/
 int creer_serveur(int port){
 
 	int socket_serveur;
 	int optval = 1;
+	
+	/*Configure des action suite à la récéption de signaux*/
+	initialiser_signaux();
 	
 	/*Création de la socket serveur*/
 	socket_serveur = socket(AF_INET ,SOCK_STREAM ,0);
