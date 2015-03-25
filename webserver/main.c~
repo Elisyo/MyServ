@@ -8,18 +8,36 @@
 
 
 int socket_client;
+FILE *file;
+char *message_recu;
 
 
-char *cut(char *texte, int mot){
+enum http_method{
+	HTTP_GET,
+	HTTP_UNSUPPORTED,
+};
+
+
+typedef struct{
+	enum http_method method;
+	int major_version;
+	int minor_version;
+	char *url;
+} http_request;
+
+
+/*Permet de récuperer un mot dans une phrase*/
+char *cut(char *texte, short mot){
+
 	short idx = 0;
-	short m = 1;
-	short i = 0;
+	short i = 1;
 	char *result = malloc(50);
-	while(idx < (signed) strlen(texte) && m != mot){
+	while(idx < (signed) strlen(texte) && i != mot){
 		if(texte[idx] == ' ')
-			m++;
+			i++;
 		idx++;
 	}
+	i = 0;
 	if(idx != (signed) strlen(texte)){
 		while(texte[idx] != '\n' && idx < (signed) strlen(texte) && texte[idx] != ' '){
 			result[i] = texte[idx];
@@ -30,23 +48,85 @@ char *cut(char *texte, int mot){
 		return result;
 	}
 	return NULL;
+	
 }
 
 
-void erreur(short nb){
-	const char *httpKo = "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 17\r\n\n400 Bad request\r\n";
-	if(nb == 400){
-		if(write(socket_client, httpKo, strlen(httpKo)) == -1){
-			perror("write message");
-			exit(1);
+/*Lecture message recut et gestion des erreur liés*/
+void fgets_or_exit(char *buffer, int size, FILE *stream){
+
+	if(fgets(buffer, size, stream) == NULL)	//Recupère le message envoyer par le client 
+		exit(1);
+		
+}
+
+
+/*Ignore les lignes d'entêtes*/
+void skip_headers(FILE *client){
+
+	while(strcmp(message_recu, "\n") != 0 && strcmp(message_recu, "\r\n") != 0)	//Tant que ce n'est pas une ligne vide on ignore
+		fgets_or_exit(message_recu, 150, client);
+		
+}
+
+
+/*Analyse la première ligne envoyer par le client et stocke les infos dans une structure*/
+int parse_http_request(char *request_line, http_request *request){
+
+	char *new;			//Chaine contenant le protocole
+	short i = 0;		//Indice
+	short mot = 1;		//Compte le nombre de mot de la requete de connection
+	enum http_method method;
+	
+	request->major_version = 1;
+	request->minor_version = 0;
+	
+	while(mot < 5 && i < (signed) strlen(request_line)){	//Verifie que le nombre de mot est inférieur à 5
+		if(request_line[i] == ' '){							//Vérifie si il y a un nouveau mot
+			mot++;
 		}
-	} else {
-		if(write(socket_client, "Erreur 404 : Page Not Found\n", 28) == -1){
-			perror("write message");
-			exit(1);
-		}	
+		i++;
 	}
-	exit(1);
+	new = cut(request_line, 3);								//Recupère le troisème mot (Normalement "HTTP/1.1" ou "HTTP1.0")
+	if(mot == 3){											//Verifie que le nombre de mot est egale à 3
+		if(strcmp(cut(request_line, 1), "GET") == 0){		//Verifie que la requete est bien GET
+			method = HTTP_GET;
+			request->method = method;
+			if(strcmp(new, "HTTP/1.1") == 0 || strcmp(new, "HTTP/1.0") == 0){	//Verifie que le protocol est bien HTTP/1.1 ou HTTP/1.0
+				request->url = cut(request_line, 2);
+				return 1;
+			}
+		} else {
+			method = HTTP_UNSUPPORTED;
+			request->method = method;
+		}
+	}
+	//erreur(400);
+	return -1;
+	
+}
+
+
+/*Envoie la ligne de statu au client*/
+void send_statu(FILE *client, int code, const char *reason_phrase){
+
+	if(fprintf(client, "HTTP/1.1 %d %s\n", code, reason_phrase) < 0){
+		perror("write message");
+		exit(1);
+	}
+	
+}
+
+
+/*Envoie une réponse au client en fonction de sa requete*/
+void send_response(FILE *client, int code, const char *reason_phrase, const char *message_body){
+
+	send_statu(client, code, reason_phrase);
+	if(fprintf(client, "Content-length: %d\nmessage-body: %s", (int) strlen(message_body), message_body) < 0){
+		perror("write message");
+		exit(1);
+	}
+	
 }
 
 
@@ -54,12 +134,10 @@ void erreur(short nb){
 int connexion(int socket_serveur) {
 
 	int pid;
-	FILE *file;
-	char *message_recu = malloc(150);
+	message_recu = malloc(150);
+	http_request request;
 	
-	const char *httpOk = "HTTP/1.1 200 Ok\n";
-	
-	const char *message_bienvenue = "Bonjour ,bienvenue sur mon serveur, je vais vous chanter une petite chanson : coucou c'est moi moumou la reine des moueeeeeeeeettes 				qui s'en va tout droit vers euralille, fait attention, fait attention, la chanson recommence... .\nAh tchou tchou pouet pouet la voila, la totomobile, ah tchou 			thou pouet pouet la voila, que fait-elle donc la ! Jour mémorable de sa première sortie, touloute touloute, lorsqu'elle entra dans une confiserie, dans une 			confiserie ! hummmmmmmmmmm !!!!!!\nQue viens-tu faire ici?\nTu veux de l'argent ? bah t'en aura pas !\nTu veux une bonne note ? Fini ce TP !!!\nlolilol!	 				\n#hashtag\nUn mur en brique tombe et casse ca donne quoi ? un mur cassé;\n";
+	const char *message_bienvenue = "Bonjour, bienvenue sur mon serveur, faite vous plaisir :)\n";
  
 	/*Tentative de connexion au client*/
 	socket_client = accept(socket_serveur, NULL, NULL);
@@ -77,53 +155,30 @@ int connexion(int socket_serveur) {
 		perror("pid");
 	else if(pid == 0){
 
-		char *tmp;
-		int con = 0;
+		short con = 0;
 		
 		while(1){
 		
-			tmp = fgets(message_recu, 150, file);	//Recupère le message envoyer par le client
+			fgets_or_exit(message_recu, 150, file);
 		
 			if(con == 0){
-				char *new;			//Chaine contenant le protocole
-				short i = 0;		//Indice
-				short mot = 1;		//Compte le nombre de mot de la requete de connection
-				
-				while(mot < 5 && i < (signed) strlen(message_recu)){	//Verifie que le nombre de mot est inférieur à 5
-					if(message_recu[i] == ' '){							//Vérifie si il y a un nouveau mot
-						mot++;
-					}
-					i++;
-				}
-				new = cut(message_recu, 3);								//Recupère le troisème mot (Normalement "HTTP/1.1" ou "HTTP1.0")
-				if(mot == 3){											//Verifie que le nombre de mot est egale à 3
-					if(strcmp(cut(message_recu, 1), "GET") != 0)		//Verifie que la requete est bien GET
-						erreur(400);
-					else if(strcmp(new, "HTTP/1.1") == 0 || strcmp(new, "HTTP/1.0") == 0){	//Verifie que le protocol est bien HTTP/1.1 ou HTTP/1.0
-						if(write(socket_client, httpOk, strlen(httpOk)) == -1){				//Indique que la requete est bonne
-							perror("write message");
-							exit(1);
-						}
-						if(strcmp(cut(message_recu, 2), "/") != 0){							//Verifie que l'url est bien "/"
-							erreur(404);
-						}
-						con++;
-					} else
-						erreur(400);
-					while(strcmp(message_recu, "\n") != 0 && strcmp(message_recu, "\r\n") != 0){
-						tmp = fgets(message_recu, 150, file);
-					}
-					if(write(socket_client, message_bienvenue, strlen(message_bienvenue)) == -1){
-						perror("write message");
-						exit(1);
-					}
-				} else {
-					erreur(400);
-				}
+				short a = parse_http_request(message_recu, &request);
+				skip_headers(file);
+				if(request.method == HTTP_UNSUPPORTED){
+					send_response(file, 405, "Method Not Allowed", "Method Not Allowed\r\n");
+					exit(1);
+				} else if(a == -1){
+					send_response(file, 400, "Bad Request", "Bad request\r\n");
+					exit(1);
+				} else if(strcmp(request.url, "/") == 0)
+					send_response(file, 200, "OK", message_bienvenue);
+				else {
+					send_response(file, 404, "Not Found", "Not Found\r\n");
+					exit(1);
+				}	
 				con ++;
 			} else {
-				if(tmp != NULL) 
-					printf("%s", message_recu);
+				printf("%s", message_recu);
 			}
 		}	
 	} else
