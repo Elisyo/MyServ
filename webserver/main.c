@@ -5,6 +5,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include "socket.h"
+#include <dirent.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 
 int socket_client;
@@ -129,15 +133,48 @@ void send_response(FILE *client, int code, const char *reason_phrase, const char
 }
 
 
+/*On recupère l'url sans la partie query*/
+char *rewrite_url(char *url){
+	char *newURL = malloc(50);
+	short i = 0;
+	while(i < (signed) strlen(url) && url[i] != '?')
+		newURL[i] = url[i];
+	newURL = realloc(newURL, i);
+	return newURL;
+}
+
+
+/*Tente d'acceder au répertoire demandé dans l'URL*/
+int check_and_open(const char *url, const char *document_root){
+	int o = -1;
+	char filePath[50];
+	char docRoot[100];
+	
+	strcpy(filePath, url);
+	strcpy(docRoot, document_root);
+	strcat(docRoot, filePath);
+	
+	struct stat statStruct;
+	if(stat(docRoot, &statStruct) == -1)
+		return -1;
+	if((statStruct.st_mode & S_IFMT) == S_IFREG){
+		o = open(docRoot, O_RDONLY);
+		if(o == -1)
+			return -1;
+	}
+	return o;
+}
+
+
 /*Gère la connexion au serveur*/
-int connexion(int socket_serveur) {
+int connexion(int socket_serveur, char *documentRoot) {
 
 	int pid;
 	message_recu = malloc(150);
 	http_request request;
 	
-	const char *message_bienvenue = "Bonjour, bienvenue sur mon serveur, faite vous plaisir :)\n";
- 
+	//const char *message_bienvenue = "Bonjour, bienvenue sur mon serveur, faite vous plaisir :)\n";
+	
 	/*Tentative de connexion au client*/
 	socket_client = accept(socket_serveur, NULL, NULL);
 	if(socket_client == -1){
@@ -161,6 +198,7 @@ int connexion(int socket_serveur) {
 			fgets_or_exit(message_recu, 150, file);
 		
 			if(con == 0){
+				int fd;
 				short a = parse_http_request(message_recu, &request);
 				skip_headers(file);
 				
@@ -171,12 +209,17 @@ int connexion(int socket_serveur) {
 				} else if(a == -1){
 					send_response(file, 400, "Bad Request", "Bad request\r\n");
 					exit(1);
-				} else if(strcmp(request.url, "/") == 0)
-					send_response(file, 200, "OK", message_bienvenue);
-				else {
+				}
+				
+
+				fd = check_and_open(request.url, documentRoot);
+				if(fd == -1){
 					send_response(file, 404, "Not Found", "Not Found\r\n");
 					exit(1);
 				}
+				
+				read(fd, message_recu, 150);
+				send_response(file, 200, "OK", message_recu);
 				
 				con ++;
 			} else {
@@ -191,17 +234,29 @@ int connexion(int socket_serveur) {
 }
 
 
-int main(){
+int main(int argc, char *argv[]){
 
 	int socket_serveur;
+	
+	if(argc != 2){
+		printf("Erreur : paramètre(s) incorect\n");
+		return -1;
+	}
+	
+	if(opendir(argv[1]) == NULL){
+		printf("Erreur : Répértoire invalide\n");
+		return -1;
+	}
+	
 	socket_serveur = creer_serveur(8080);
 	if(socket_serveur == -1){
 		perror("probleme creation serveur\n");
 		return -1;
 	}
+	
 	while(1)
-		connexion(socket_serveur);
-		
+		connexion(socket_serveur, argv[1]);
+	
 	return 0;
 
 }
